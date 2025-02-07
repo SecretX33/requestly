@@ -17,8 +17,7 @@ cd ..
 
 echo -e "\n***** Building MV2 extension *****"
 cd mv2
-# TODO @Sachin: Remove this when creating the pull request
-#npm run build:current
+npm run build:current
 cd ..
 
 echo -e "\n***** Building MV3 extension *****"
