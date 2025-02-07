@@ -1,0 +1,68 @@
+name: Build and Release Browser Extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Build Environment'
+        required: true
+        type: choice
+        options:
+          - local
+          - beta
+          - prod
+        default: 'local'
+      release_notes:
+        description: 'Release Notes'
+        required: false
+        type: string
+        default: 'No release notes provided'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '19'
+          cache: 'npm'
+          cache-dependency-path: 'browser-extension/**/package-lock.json'
+
+      - name: Get version
+        id: get_version
+        run: |
+          VERSION=$(node -p "require('./browser-extension/mv3/package.json').version")
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        working-directory: browser-extension
+        run: ./install.sh
+
+      - name: Build Extension
+        working-directory: browser-extension
+        run: ./build.sh ${{ github.event.inputs.environment }}
+
+      - name: Run tests
+        working-directory: browser-extension
+        run: ./test.sh
+
+      - name: Create Release Archive
+        run: |
+          cd browser-extension
+          zip -r ../extension-${{ github.event.inputs.environment }}.zip mv2/dist mv3/dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: "Browser Extension ${{ steps.get_version.outputs.version }} (${{ github.event.inputs.environment }})"
+          body: ${{ github.event.inputs.release_notes }}
+          draft: false
+          prerelease: ${{ github.event.inputs.environment != 'prod' }}
+          files: extension-${{ github.event.inputs.environment }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
