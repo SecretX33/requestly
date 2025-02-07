@@ -25,6 +25,10 @@ on:
         description: Version tag (e.g. 1.2.5, empty to use the one defined in package.json)
         type: string
         required: false
+      release_name:
+        description: Release name (e.g. v1.2.5, empty to generate one automatically)
+        type: string
+        required: false
 
 jobs:
   build-and-release:
@@ -38,7 +42,13 @@ jobs:
         with:
           node-version: 19
           cache: npm
-          cache-dependency-path: 'browser-extension/**/package-lock.json'
+          cache-dependency-path: |
+            browser-extension/**/package-lock.json
+            common/analytics-vendors/package-lock.json
+
+      - name: Install analytics vendors dependencies
+        working-directory: common/analytics-vendors
+        run: npm install
 
       - name: Install dependencies
         working-directory: browser-extension
