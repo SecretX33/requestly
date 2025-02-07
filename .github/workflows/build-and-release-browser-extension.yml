@@ -48,66 +48,16 @@ jobs:
             echo "is_all_environments=false" >> $GITHUB_OUTPUT
           fi
 
-  build-and-release:
+  build:
     needs: determine-environments
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        environment: ${{ fromJson(needs.determine-environments.outputs.environments) }}
-      fail-fast: false
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    uses: ./.github/workflows/build-browser-extension.yml
+    with:
+      environment: ${{ github.event.inputs.environment }}
+      environments: ${{ needs.determine-environments.outputs.environments }}
+      version_tag: ${{ github.event.inputs.version_tag }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 19
-          cache: npm
-          cache-dependency-path: |
-            browser-extension/**/package-lock.json
-            common/analytics-vendors/package-lock.json
-
-      - name: Install analytics vendors dependencies
-        working-directory: common/analytics-vendors
-        run: npm install
-
-      - name: Install dependencies
-        working-directory: browser-extension
-        run: ./install.sh
-
-      - name: Build Extension
-        working-directory: browser-extension
-        run: ./build.sh ${{ matrix.environment }}
-
-      - name: Run tests
-        working-directory: browser-extension
-        run: ./test.sh
-
-      - name: Create Release Archive
-        run: |
-          cd browser-extension
-          zip -r ../extension-${{ matrix.environment }}.zip mv2/dist mv3/dist
-
-      - name: Set version
-        id: version
-        run: |
-          version="${{ inputs.version_tag }}"
-          if [ -z "$version" ]; then
-            version=$(node -p "require('./browser-extension/mv3/package.json').version")
-          fi
-          echo "New version is: $version"
-          echo "version=$version" >> $GITHUB_OUTPUT
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: extension-${{ matrix.environment }}
-          path: extension-${{ matrix.environment }}.zip
-          retention-days: 1
-
-  create-release:
-    needs: [determine-environments, build-and-release]
+  release:
+    needs: [determine-environments, build]
     runs-on: ubuntu-latest
     if: inputs.build_mode != 'build only'
     steps:
