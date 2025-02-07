@@ -8,10 +8,11 @@ on:
         required: true
         type: choice
         options:
+          - all
           - local
           - beta
           - prod
-        default: local
+        default: all
       build_mode:
         description: Build mode
         type: choice
@@ -31,8 +32,29 @@ on:
         required: false
 
 jobs:
-  build-and-release:
+  determine-environments:
     runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.set-environments.outputs.environments }}
+      is_all_environments: ${{ steps.set-environments.outputs.is_all_environments }}
+    steps:
+      - id: set-environments
+        run: |
+          if [ "${{ github.event.inputs.environment }}" == "all" ]; then
+            echo "environments=['local', 'beta', 'prod']" >> $GITHUB_OUTPUT
+            echo "is_all_environments=true" >> $GITHUB_OUTPUT
+          else
+            echo "environments=['${{ github.event.inputs.environment }}']" >> $GITHUB_OUTPUT
+            echo "is_all_environments=false" >> $GITHUB_OUTPUT
+          fi
+
+  build-and-release:
+    needs: determine-environments
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: ${{ fromJson(needs.determine-environments.outputs.environments) }}
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -56,7 +78,7 @@ jobs:
 
       - name: Build Extension
         working-directory: browser-extension
-        run: ./build.sh ${{ github.event.inputs.environment }}
+        run: ./build.sh ${{ matrix.environment }}
 
       - name: Run tests
         working-directory: browser-extension
@@ -65,7 +87,7 @@ jobs:
       - name: Create Release Archive
         run: |
           cd browser-extension
-          zip -r ../extension-${{ github.event.inputs.environment }}.zip mv2/dist mv3/dist
+          zip -r ../extension-${{ matrix.environment }}.zip mv2/dist mv3/dist
 
       - name: Set version
         id: version
@@ -77,12 +99,41 @@ jobs:
           echo "New version is: $version"
           echo "version=$version" >> $GITHUB_OUTPUT
 
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ matrix.environment }}
+          path: extension-${{ matrix.environment }}.zip
+          retention-days: 1
+
+  create-release:
+    needs: [determine-environments, build-and-release]
+    runs-on: ubuntu-latest
+    if: inputs.build_mode != 'build only'
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Set version
+        id: version
+        run: |
+          version="${{ inputs.version_tag }}"
+          if [ -z "$version" ]; then
+            version=$(ls extension-*/extension-*.zip | head -n1 | sed 's/.*extension-\(.*\)\.zip/\1/')
+          fi
+          echo "New version is: $version"
+          echo "version=$version" >> $GITHUB_OUTPUT
+
       - name: Set release name
         id: release_name
         run: |
           release_name="${{ inputs.release_name }}"
           if [ -z "$release_name" ]; then
-            release_name="v${{ steps.version.outputs.version }} (${{ github.event.inputs.environment }})"
+            if [ "${{ needs.determine-environments.outputs.is_all_environments }}" == "true" ]; then
+              release_name="v${{ steps.version.outputs.version }} (all)"
+            else
+              release_name="v${{ steps.version.outputs.version }} (${{ fromJson(needs.determine-environments.outputs.environments)[0] }})"
+            fi
           fi
           echo "New release_name is: $release_name"
           echo "release_name=$release_name" >> $GITHUB_OUTPUT
@@ -103,7 +154,8 @@ jobs:
           name: ${{ steps.release_name.outputs.release_name }}
           tag_name: ${{ steps.version.outputs.version }}
           generate_release_notes: true
-          prerelease: ${{ github.event.inputs.environment != 'prod' }}
-          files: extension-${{ github.event.inputs.environment }}.zip
+          prerelease: ${{ !needs.determine-environments.outputs.is_all_environments && fromJson(needs.determine-environments.outputs.environments)[0] != 'prod' }}
+          files: |
+            extension-*/extension-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
