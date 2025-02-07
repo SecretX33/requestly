@@ -11,7 +11,7 @@ on:
           - local
           - beta
           - prod
-        default: 'local'
+        default: local
       build_mode:
         description: Build mode
         type: choice
@@ -36,8 +36,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '19'
-          cache: 'npm'
+          node-version: 19
+          cache: npm
           cache-dependency-path: 'browser-extension/**/package-lock.json'
 
       - name: Install dependencies
